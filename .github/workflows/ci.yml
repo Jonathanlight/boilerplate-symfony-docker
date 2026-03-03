@@ -1,0 +1,150 @@
+name: CI
+
+on:
+  push:
+    branches: [develop, main]
+  pull_request:
+    branches: [develop, main]
+
+env:
+  PHP_VERSION: '8.3'
+
+jobs:
+  code-quality:
+    name: Code Quality
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: app/symfony
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ env.PHP_VERSION }}
+          extensions: mbstring, intl, pdo_mysql
+          tools: composer:v2
+          coverage: none
+
+      - name: Cache Composer dependencies
+        uses: actions/cache@v4
+        with:
+          path: app/symfony/vendor
+          key: composer-${{ runner.os }}-${{ hashFiles('app/symfony/composer.lock') }}
+          restore-keys: composer-${{ runner.os }}-
+
+      - name: Install Composer dependencies
+        run: composer install --no-progress --prefer-dist --no-interaction --optimize-autoloader --no-scripts
+
+      - name: Lint Twig templates
+        run: php bin/console lint:twig templates --env=dev --no-debug
+
+      - name: Lint YAML config
+        run: php bin/console lint:yaml config --env=dev --no-debug
+
+      - name: Lint Symfony container
+        run: php bin/console lint:container --env=dev --no-debug
+
+  static-analysis:
+    name: Static Analysis
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: app/symfony
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ env.PHP_VERSION }}
+          extensions: mbstring, intl, pdo_mysql
+          tools: composer:v2
+          coverage: none
+
+      - name: Cache Composer dependencies
+        uses: actions/cache@v4
+        with:
+          path: app/symfony/vendor
+          key: composer-${{ runner.os }}-${{ hashFiles('app/symfony/composer.lock') }}
+          restore-keys: composer-${{ runner.os }}-
+
+      - name: Install Composer dependencies
+        run: composer install --no-progress --prefer-dist --no-interaction --optimize-autoloader --no-scripts
+
+      - name: Run PHP-CS-Fixer (dry run)
+        run: php vendor/bin/php-cs-fixer fix --config=.php-cs-fixer.dist.php --dry-run --diff
+
+      - name: Run PHPStan
+        run: php vendor/bin/phpstan analyse --configuration=phpstan.neon --no-progress
+
+  tests:
+    name: Tests (PHPUnit)
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: app/symfony
+
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: myproject_test
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping --silent"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ env.PHP_VERSION }}
+          extensions: mbstring, intl, pdo_mysql
+          tools: composer:v2
+          coverage: none
+
+      - name: Cache Composer dependencies
+        uses: actions/cache@v4
+        with:
+          path: app/symfony/vendor
+          key: composer-${{ runner.os }}-${{ hashFiles('app/symfony/composer.lock') }}
+          restore-keys: composer-${{ runner.os }}-
+
+      - name: Wait for MySQL
+        run: |
+          for i in {1..30}; do
+            if mysqladmin ping -h 127.0.0.1 -u root -proot --silent 2>/dev/null; then
+              echo "MySQL is ready!"
+              break
+            fi
+            echo "Waiting for MySQL... ($i/30)"
+            sleep 2
+          done
+
+      - name: Install Composer dependencies
+        run: composer install --no-progress --prefer-dist --no-interaction --optimize-autoloader --no-scripts
+
+      - name: Configure .env.test.local for CI
+        run: |
+          echo 'DATABASE_URL="mysql://root:root@127.0.0.1:3306/myproject_test?serverVersion=8.0&charset=utf8mb4"' > .env.test.local
+
+      - name: Run PHPUnit
+        run: php vendor/bin/phpunit --colors=always
+        env:
+          APP_ENV: test
