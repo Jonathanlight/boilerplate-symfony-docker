@@ -7,7 +7,7 @@ A ready-to-use Docker boilerplate for Symfony projects.
 | Component | Version |
 |-----------|---------|
 | PHP       | 8.3     |
-| Symfony   | 7.2     |
+| Symfony   | 7.4     |
 | MySQL     | 8.0     |
 | Apache    | 2.4     |
 
